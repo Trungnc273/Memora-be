@@ -1,4 +1,4 @@
-import FollowModel from "../../core/models/Follow.model.js";
+import FollowModel from "../../core/models/follow.model.js";
 
 /**
  * Gửi follow request
