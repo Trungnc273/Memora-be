@@ -11,6 +11,7 @@ const S3_BUCKET = process.env.AWS_S3_BUCKET;
  * @route POST /api/posts
  */
 export async function createPostWithMedia(req, res) {
+  console.log("🌍 Has IO:", !!global._io);
   try {
     console.log("📥 [createPostWithMedia] Body:", req.body);
     console.log("📷 [createPostWithMedia] File:", req.file);
@@ -97,6 +98,15 @@ export async function createPostWithMedia(req, res) {
 
     console.log("🔗 [MongoDB] PostMedia created:", postMedia);
 
+    if (global._io) {
+      console.log("📡 [Socket.IO] Emitting new_post event...");
+      global._io.emit("new_post", {
+        post,
+        media: mediaDoc,
+        user_id,
+        created_at: post.created_at,
+      });
+    }
     return res.status(201).json({
       status: "OK",
       message: "✅ Post created with media uploaded to S3 successfully",
@@ -365,12 +375,10 @@ export async function deletePost(req, res) {
 
     // Chỉ cho phép chủ bài viết xóa
     if (post.user_id.toString() !== userId) {
-      return res
-        .status(403)
-        .json({
-          status: "ERROR",
-          message: "You are not allowed to delete this post",
-        });
+      return res.status(403).json({
+        status: "ERROR",
+        message: "You are not allowed to delete this post",
+      });
     }
 
     // Xóa mềm bài viết
