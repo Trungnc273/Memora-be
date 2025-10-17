@@ -1,6 +1,5 @@
 import RoleModel from "../../core/models/role.model.js";
 import PermissionModel from "../../core/models/permission.model.js";
-import RolePermissionModel from "../../core/models/role-permission.model.js";
 
 /**
  * @desc Tạo mới Role
@@ -109,9 +108,6 @@ export async function deleteRole(req, res) {
         message: "Role not found",
       });
 
-    // Xóa luôn các liên kết permission
-    await RolePermissionModel.deleteMany({ role: id });
-
     return res.status(200).json({
       status: "OK",
       message: "Role deleted successfully",
@@ -133,20 +129,19 @@ export async function getRolePermissions(req, res) {
   try {
     const { id } = req.params;
 
-    const role = await RoleModel.findById(id);
+    const role = await RoleModel.findById(id).populate("permissions").lean();
     if (!role)
       return res.status(404).json({
         status: "ERROR",
         message: "Role not found",
       });
 
-    const rolePermissions = await RolePermissionModel.find({
-      role: id,
-    }).populate("permission");
-
     return res.status(200).json({
       status: "OK",
-      data: rolePermissions.map((rp) => rp.permission),
+      data: role.permissions.map((perm) => ({
+        name: perm.name,
+        description: perm.description,
+      })),
     });
   } catch (error) {
     console.error("❌ getRolePermissions error:", error);
@@ -177,26 +172,20 @@ export async function addPermission(req, res) {
       });
     }
 
-    const existed = await RolePermissionModel.findOne({
-      role: id,
-      permission: permissionId,
-    });
-    if (existed) {
+    if (role.permissions.includes(permissionId)) {
       return res.status(400).json({
         status: "ERROR",
         message: "Permission already assigned to this role",
       });
     }
 
-    const newRolePermission = await RolePermissionModel.create({
-      role: id,
-      permission: permissionId,
-    });
+    role.permissions.push(permissionId);
+    await role.save();
 
     return res.status(201).json({
       status: "OK",
       message: "Permission added to role successfully",
-      data: newRolePermission,
+      data: role,
     });
   } catch (error) {
     console.error("❌ addPermissionToRole error:", error);
@@ -209,32 +198,40 @@ export async function addPermission(req, res) {
 
 export async function removePermission(req, res) {
   try {
-    const { id } = req.params;
+    const { id } = req.params; // role id
     const { permissionId } = req.body;
 
-    const existed = await RolePermissionModel.findOne({
-      role: id,
-      permission: permissionId,
-    });
+    // 🔹 Tìm role
+    const role = await RoleModel.findById(id);
+    if (!role) {
+      return res.status(404).json({
+        status: "ERROR",
+        message: "Role not found",
+      });
+    }
 
-    if (!existed) {
+    // 🔹 Kiểm tra xem permission có trong role không
+    if (!role.permissions.includes(permissionId)) {
       return res.status(404).json({
         status: "ERROR",
         message: "Permission not assigned to this role",
       });
     }
 
-    await RolePermissionModel.deleteOne({
-      role: id,
-      permission: permissionId,
-    });
+    // 🔹 Xoá permission khỏi mảng
+    role.permissions = role.permissions.filter(
+      (permId) => permId.toString() !== permissionId
+    );
+
+    await role.save();
 
     return res.status(200).json({
       status: "OK",
       message: "Permission removed from role successfully",
+      data: role,
     });
   } catch (error) {
-    console.error("❌ removePermissionFromRole error:", error);
+    console.error("❌ removePermission error:", error);
     return res.status(500).json({
       status: "ERROR",
       message: "Internal server error",

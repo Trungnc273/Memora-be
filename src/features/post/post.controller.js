@@ -1,6 +1,5 @@
 import PostModel from "../../core/models/post.model.js";
 import MediaModel from "../../core/models/media.model.js";
-import PostMediaModel from "../../core/models/post-media.model.js";
 import FollowModel from "../../core/models/follow.model.js";
 import { s3Client } from "../../core/configs/aws.js";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
@@ -82,6 +81,7 @@ export async function createPostWithMedia(req, res) {
     // 3️⃣ Tạo Post
     const post = await PostModel.create({
       user_id,
+      media: mediaDoc._id,
       caption,
       visibility: visibility || "public",
       created_at: new Date(),
@@ -89,14 +89,6 @@ export async function createPostWithMedia(req, res) {
     });
 
     console.log("📝 [MongoDB] Post saved:", post);
-
-    // 4️⃣ Tạo PostMedia mapping
-    const postMedia = await PostMediaModel.create({
-      post_id: post._id,
-      media_id: mediaDoc._id,
-    });
-
-    console.log("🔗 [MongoDB] PostMedia created:", postMedia);
 
     if (global._io) {
       console.log("📡 [Socket.IO] Emitting new_post event...");
@@ -126,9 +118,9 @@ export async function createPostWithMedia(req, res) {
 export async function getPostById(req, res) {
   try {
     const { postId } = req.params;
-    const userId = req.user?.id; // người đang đăng nhập (nếu có)
+    const userId = req.user.id;
 
-    const post = await PostModel.findById(postId).lean();
+    const post = await PostModel.findById(postId).populate("media").lean();
     if (!post || post.is_deleted) {
       return res
         .status(404)
@@ -136,7 +128,7 @@ export async function getPostById(req, res) {
     }
 
     // ✅ Kiểm tra quyền truy cập dựa trên visibility
-    const visibility = post.visibility || "public"; // mặc định là public nếu chưa có
+    const visibility = post.visibility || "public";
     const postOwnerId = post.user_id.toString();
 
     let canView = false;
@@ -177,14 +169,10 @@ export async function getPostById(req, res) {
     }
 
     // ✅ Nếu hợp lệ thì lấy media
-    const postMedia = await PostMediaModel.findOne({
-      post_id: postId,
-    }).populate("media_id");
-    const media = postMedia?.media_id || null;
 
     return res.status(200).json({
       status: "OK",
-      data: { post, media },
+      data: { post },
     });
   } catch (error) {
     console.error("❌ getPostById error:", error);
@@ -221,20 +209,12 @@ export async function getAllPosts(req, res) {
         },
       ],
     })
+      .populate("user_id", "display_name")
+      .populate("media")
       .sort({ created_at: -1 })
       .lean();
 
-    // 3️⃣ Lấy media cho từng bài viết
-    const postsWithMedia = await Promise.all(
-      posts.map(async (p) => {
-        const pm = await PostMediaModel.findOne({ post_id: p._id }).populate(
-          "media_id"
-        );
-        return { ...p, media: pm?.media_id || null };
-      })
-    );
-
-    return res.status(200).json({ status: "OK", data: postsWithMedia });
+    return res.status(200).json({ status: "OK", data: posts });
   } catch (error) {
     console.error("❌ getAllPosts error:", error);
     return res.status(500).json({
@@ -249,18 +229,12 @@ export async function getMyPosts(req, res) {
     const posts = await PostModel.find({
       user_id: userId,
       is_deleted: false,
-    }).lean();
+    })
+      .populate("media")
+      .sort({ created_at: -1 })
+      .lean();
 
-    const postsWithMedia = await Promise.all(
-      posts.map(async (p) => {
-        const pm = await PostMediaModel.findOne({ post_id: p._id }).populate(
-          "media_id"
-        );
-        return { ...p, media: pm?.media_id || null };
-      })
-    );
-
-    return res.status(200).json({ status: "OK", data: postsWithMedia });
+    return res.status(200).json({ status: "OK", data: posts });
   } catch (error) {
     console.error("❌ getMyPosts error:", error);
     return res
@@ -290,18 +264,12 @@ export async function getFriendsPosts(req, res) {
       user_id: { $in: friendIds },
       visibility: { $in: ["public", "friend"] },
       is_deleted: false,
-    }).lean();
+    })
+      .populate("media")
+      .sort({ created_at: -1 })
+      .lean();
 
-    const postsWithMedia = await Promise.all(
-      posts.map(async (p) => {
-        const pm = await PostMediaModel.findOne({ post_id: p._id }).populate(
-          "media_id"
-        );
-        return { ...p, media: pm?.media_id || null };
-      })
-    );
-
-    return res.status(200).json({ status: "OK", data: postsWithMedia });
+    return res.status(200).json({ status: "OK", data: posts });
   } catch (error) {
     console.error("❌ getFriendsPosts error:", error);
     return res
@@ -338,19 +306,11 @@ export async function getUserPostsById(req, res) {
       visibility: { $in: visibilityFilter },
       is_deleted: false,
     })
+      .populate("media")
       .sort({ created_at: -1 })
       .lean();
 
-    const postsWithMedia = await Promise.all(
-      posts.map(async (p) => {
-        const pm = await PostMediaModel.findOne({ post_id: p._id }).populate(
-          "media_id"
-        );
-        return { ...p, media: pm?.media_id || null };
-      })
-    );
-
-    return res.status(200).json({ status: "OK", data: postsWithMedia });
+    return res.status(200).json({ status: "OK", data: posts });
   } catch (error) {
     console.error("❌ getUserPostsById error:", error);
     return res.status(500).json({
@@ -386,16 +346,7 @@ export async function deletePost(req, res) {
     await post.save();
 
     // Xóa mềm media liên quan (nếu có)
-    const postMedia = await PostMediaModel.find({ post_id: postId });
-    if (postMedia && postMedia.length > 0) {
-      for (const pm of postMedia) {
-        if (pm.media_id) {
-          await MediaModel.findByIdAndUpdate(pm.media_id, { is_deleted: true });
-        }
-        pm.is_deleted = true;
-        await pm.save();
-      }
-    }
+    await MediaModel.findByIdAndUpdate(post.media, { is_deleted: true });
 
     return res.status(200).json({
       status: "OK",

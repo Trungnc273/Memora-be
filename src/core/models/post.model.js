@@ -9,6 +9,11 @@ const PostSchema = new Schema(
       ref: "User",
       required: [true, "User ID is required"],
     },
+    media: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Media",
+      required: [true, "Media ID is required"],
+    },
     caption: {
       type: String,
       maxlength: [255, "Caption cannot exceed 255 characters"],

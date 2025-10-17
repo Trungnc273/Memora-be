@@ -10,6 +10,12 @@ const UserSchema = new Schema(
     display_name: { type: String, maxlength: 100 },
     email: { type: String, required: true, unique: true, maxlength: 255 },
     password_hash: { type: String, required: true, maxlength: 255 },
+    roles: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Role",
+      },
+    ],
     avatar_url: { type: String },
     is_deleted: { type: Boolean, default: false },
     is_lock: { type: Boolean, default: false },

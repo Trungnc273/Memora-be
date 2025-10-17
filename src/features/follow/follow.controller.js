@@ -1,8 +1,5 @@
 import FollowModel from "../../core/models/follow.model.js";
 
-/**
- * Gửi follow request
- */
 export async function followUser(req, res) {
   try {
     const followerId = req.user.id;

@@ -13,6 +13,12 @@ const RoleSchema = new Schema(
     description: {
       type: String,
     },
+    permissions: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Permission",
+      },
+    ],
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
