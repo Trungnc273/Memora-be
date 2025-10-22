@@ -1,4 +1,5 @@
 import FollowModel from "../../core/models/follow.model.js";
+import ConversationModel from "../../core/models/conversation.model.js";
 
 export async function followUser(req, res) {
   try {
@@ -6,12 +7,13 @@ export async function followUser(req, res) {
     const { followeeId } = req.body;
 
     if (followerId === followeeId) {
-      return res
-        .status(400)
-        .json({ status: "ERROR", message: "You cannot follow yourself" });
+      return res.status(400).json({
+        status: "ERROR",
+        message: "You cannot follow yourself",
+      });
     }
 
-    // Check block
+    // 🔹 Kiểm tra block
     const blocked = await FollowModel.findOne({
       $or: [
         { follower_id: followerId, followee_id: followeeId, status: "blocked" },
@@ -25,44 +27,81 @@ export async function followUser(req, res) {
       });
     }
 
-    // Check if follow exists
-    let follow = await FollowModel.findOne({
-      follower_id: followerId,
-      followee_id: followeeId,
+    // 🔹 Kiểm tra xem có follow 1 chiều nào giữa 2 người chưa (bất kỳ hướng)
+    const existingFollow = await FollowModel.findOne({
+      $or: [
+        { follower_id: followerId, followee_id: followeeId },
+        { follower_id: followeeId, followee_id: followerId },
+      ],
     });
-    if (follow) {
-      return res
-        .status(400)
-        .json({ status: "ERROR", message: "Follow request already exists" });
+
+    if (existingFollow) {
+      // 🔸 1. Người kia đã gửi request trước → accept
+      if (
+        existingFollow.follower_id.toString() === followeeId &&
+        existingFollow.status === "pending"
+      ) {
+        existingFollow.status = "accepted";
+        await existingFollow.save();
+
+        // Kiểm tra có conversation 1-1 chưa
+        const existingConversation = await ConversationModel.findOne({
+          is_group: false,
+          user: { $all: [followerId, followeeId], $size: 2 },
+        });
+
+        if (!existingConversation) {
+          await ConversationModel.create({
+            user: [followerId, followeeId],
+            is_group: false,
+          });
+        }
+
+        return res.status(200).json({
+          status: "OK",
+          message: "Follow request accepted and conversation created (if new)",
+          data: existingFollow,
+        });
+      }
+
+      // 🔸 2. Đã là bạn bè rồi
+      if (existingFollow.status === "accepted") {
+        return res.status(400).json({
+          status: "ERROR",
+          message: "You are already friends",
+        });
+      }
+
+      // 🔸 3. Mình đã gửi request rồi
+      if (
+        existingFollow.follower_id.toString() === followerId &&
+        existingFollow.status === "pending"
+      ) {
+        return res.status(400).json({
+          status: "ERROR",
+          message: "Follow request already sent",
+        });
+      }
     }
 
-    // Tạo follow pending
-    follow = await FollowModel.create({
+    // 🔹 Nếu chưa có follow nào → tạo mới pending
+    const newFollow = await FollowModel.create({
       follower_id: followerId,
       followee_id: followeeId,
       status: "pending",
     });
 
-    // Kiểm tra ngược lại để xem có trở thành friend luôn không
-    const reciprocal = await FollowModel.findOne({
-      follower_id: followeeId,
-      followee_id: followerId,
+    return res.status(201).json({
+      status: "OK",
+      message: "Follow request sent",
+      data: newFollow,
     });
-    if (reciprocal) {
-      follow.status = "accepted";
-      reciprocal.status = "accepted";
-      await follow.save();
-      await reciprocal.save();
-    }
-
-    return res
-      .status(201)
-      .json({ status: "OK", message: "Follow request created", data: follow });
   } catch (err) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ status: "ERROR", message: "Internal server error" });
+    console.error("❌ Follow Error:", err);
+    return res.status(500).json({
+      status: "ERROR",
+      message: "Internal server error",
+    });
   }
 }
 
