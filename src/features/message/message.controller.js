@@ -47,18 +47,23 @@ export async function sendMessage(req, res) {
     conversation.updated_at = new Date();
     await conversation.save();
 
+    const populatedMessage = await message.populate(
+      "sender",
+      "_id display_name avatar_url"
+    );
+
     const messageData = {
-      _id: message._id,
-      sender: senderId,
-      content,
-      message_type,
-      created_at: message.created_at,
+      _id: populatedMessage._id,
+      sender: populatedMessage.sender,
+      content: populatedMessage.content,
+      message_type: populatedMessage.message_type,
+      created_at: populatedMessage.created_at,
     };
 
     // ✅ Gửi realtime qua socket chỉ cho người trong room
     if (global._io) {
       console.log(`📡 [Socket.IO] Emit new_message to room ${conversationId}`);
-      global._io.to(conversationId).emit("new_message", {
+      global._io.to(conversationId).except(req.user.id).emit("new_message", {
         conversationId,
         message: messageData,
       });
