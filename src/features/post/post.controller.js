@@ -185,44 +185,68 @@ export async function getPostById(req, res) {
 
 export async function getAllPosts(req, res) {
   try {
-    const userId = req.user.id; // từ token
-    console.log("👤 [getAllPosts] Current user:", userId);
+    const userId = req.user.id;
+    console.log("User ID:", userId);
 
-    // 1️⃣ Lấy danh sách bạn bè hoặc người user theo dõi (tuỳ mô hình)
-    const friends = await FollowModel.find({
-      follower_id: userId,
-      status: "accepted", // nếu có trạng thái follow
-    }).select("followee_id");
+    // === 1. LẤY DANH SÁCH NGƯỜI DÙNG ĐƯỢC XEM BÀI VIẾT ===
+    // - Người mình follow (mình là follower)
+    // - Người follow mình (mình là followee)
+    const followRecords = await FollowModel.find({
+      $or: [
+        { follower_id: userId, status: "accepted" }, // mình follow người khác
+        { followee_id: userId, status: "accepted" }, // người khác follow mình
+      ],
+    }).select("follower_id followee_id");
 
-    const friendIds = friends.map((f) => f.followee_id.toString());
+    // Tạo Set để tránh trùng
+    const visibleUserIds = new Set();
 
-    // 2️⃣ Lấy bài viết:
-    // - của chính mình
-    // - hoặc của bạn bè (visibility: public/friends)
+    followRecords.forEach((record) => {
+      if (record.follower_id.toString() === userId) {
+        visibleUserIds.add(record.followee_id.toString());
+      } else if (record.followee_id.toString() === userId) {
+        visibleUserIds.add(record.follower_id.toString());
+      }
+    });
+
+    // === 2. LẤY BÀI VIẾT ===
     const posts = await PostModel.find({
       is_deleted: false,
       $or: [
+        // 1. Bài của chính mình
         { user_id: userId },
+
+        // 2. Bài của người trong visibleUserIds + visibility phù hợp
         {
-          user_id: { $in: friendIds },
+          user_id: { $in: Array.from(visibleUserIds) },
           visibility: { $in: ["public", "friends"] },
         },
+
+        // 3. Bài public của mọi người (tùy chọn)
+        // { visibility: "public" }
       ],
     })
-      .populate("user_id", "display_name")
-      .populate("media")
+      .populate("user_id", "username display_name avatar_url")
+      .populate({
+        path: "media",
+        match: { is_deleted: false },
+      })
       .sort({ created_at: -1 })
       .lean();
 
-    return res.status(200).json({ status: "OK", data: posts });
+    return res.status(200).json({
+      status: "OK",
+      data: posts,
+    });
   } catch (error) {
-    console.error("❌ getAllPosts error:", error);
+    console.error("getAllPosts error:", error);
     return res.status(500).json({
       status: "ERROR",
       message: "Internal server error",
     });
   }
 }
+
 export async function getMyPosts(req, res) {
   try {
     const userId = req.user.id;

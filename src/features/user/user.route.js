@@ -1,13 +1,21 @@
 import { Router } from "express";
+import multer from "multer";
 import authMiddleware from "../../shared/middlewares/auth.middleware.js";
-import { detail, update } from "./user.controller.js";
+import {
+  detail,
+  updateDisplayName,
+  uploadImage,
+  deleteAccount,
+} from "./user.controller.js";
 
-const userRouter = Router();
+const router = Router();
 
-userRouter.get("/:userId", detail);
-userRouter.put("/:userId/update", update);
+const upload = multer({ storage: multer.memoryStorage() });
 
-// middleware nên đặt trước route cần bảo vệ
-userRouter.use(authMiddleware);
+router.use(authMiddleware);
 
-export default userRouter;
+router.get("/", detail);
+router.put("/displayName", updateDisplayName);
+router.put("/image", upload.single("image"), uploadImage);
+router.delete("/", deleteAccount);
+export default router;

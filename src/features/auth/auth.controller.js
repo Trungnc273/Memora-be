@@ -87,11 +87,29 @@ export async function signIn(request, response) {
     if (!jwtSecret) throw new Error("Missing JWT_SECRET");
 
     // ✅ Populate roles để lấy tên role
+    // ✅ Tìm user theo username + populate roles
     const user = await UserModel.findOne({ username }).populate("roles");
+
     if (!user) {
       return response
         .status(400)
         .json({ status: "ERROR", message: "Username not existed" });
+    }
+
+    // === KIỂM TRA TRẠNG THÁI TÀI KHOẢN ===
+    if (user.is_deleted) {
+      return response.status(400).json({
+        status: "ERROR",
+        message:
+          "This account has been deleted. Please contact support to recover.",
+      });
+    }
+
+    if (user.is_lock) {
+      return response.status(400).json({
+        status: "ERROR",
+        message: "This account is locked. Please contact support.",
+      });
     }
 
     const isMatch = await user.comparePassword(password);
@@ -109,6 +127,7 @@ export async function signIn(request, response) {
       username: user.username,
       email: user.email,
       display_name: user.display_name,
+      avatar_url: user.avatar_url,
       roles, // lưu danh sách tên role vào JWT
     };
 
@@ -126,6 +145,23 @@ export async function signIn(request, response) {
       });
   } catch (err) {
     console.error("❌ signIn error:", err);
+    return response
+      .status(500)
+      .json({ status: "ERROR", message: "Internal server error" });
+  }
+}
+
+export async function signOut(request, response) {
+  try {
+    // 1. Xóa cookie "token" bằng cách đặt giá trị rỗng và thời gian hết hạn là ngay lập tức (hoặc maxAge = 0)
+    response.clearCookie("token");
+
+    return response.status(200).json({
+      status: "OK",
+      message: "SignOut successful (Token removed)",
+    });
+  } catch (err) {
+    console.error("❌ signOut error:", err);
     return response
       .status(500)
       .json({ status: "ERROR", message: "Internal server error" });
