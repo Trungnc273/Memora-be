@@ -122,8 +122,8 @@ export async function sendMessage(req, res) {
 export async function getMessages(req, res) {
   try {
     const { conversationId } = req.params;
-    const { page = 1, limit = 20 } = req.query;
 
+    // Tìm cuộc trò chuyện
     const conversation = await ConversationModel.findById(conversationId);
     if (!conversation || conversation.is_deleted) {
       return res.status(404).json({
@@ -132,6 +132,7 @@ export async function getMessages(req, res) {
       });
     }
 
+    // Lấy toàn bộ tin nhắn (không phân trang)
     const messages = await MessageModel.find({
       _id: { $in: conversation.message },
       is_delete: false,
@@ -147,11 +148,10 @@ export async function getMessages(req, res) {
         },
         select: "caption",
       })
-      .sort({ created_at: 1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit))
+      .sort({ created_at: 1 }) // sắp xếp theo thời gian
       .lean();
 
+    // Định dạng dữ liệu trả về
     const formattedMessages = messages.map((msg) => ({
       _id: msg._id,
       sender: msg.sender,
@@ -170,11 +170,7 @@ export async function getMessages(req, res) {
     return res.status(200).json({
       status: "OK",
       data: formattedMessages,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: conversation.message.length,
-      },
+      total: formattedMessages.length,
     });
   } catch (err) {
     console.error("getMessages error:", err);
