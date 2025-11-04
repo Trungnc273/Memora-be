@@ -22,7 +22,6 @@ export async function updateDisplayName(request, response) {
     const userId = request.user.id;
     const { display_name } = request.body;
 
-    // 1. Kiểm tra user có tồn tại không
     const user = await UserModel.findById(userId);
     if (!user) {
       return response.status(404).json({
@@ -31,7 +30,6 @@ export async function updateDisplayName(request, response) {
       });
     }
 
-    // 2. Kiểm tra user có bị khóa không
     if (user.is_lock) {
       return response.status(403).json({
         status: "ERROR",
@@ -39,7 +37,6 @@ export async function updateDisplayName(request, response) {
       });
     }
 
-    // 3. Kiểm tra display_name hợp lệ
     if (display_name !== undefined) {
       if (typeof display_name !== "string") {
         return response.status(400).json({
@@ -86,9 +83,8 @@ export async function uploadImage(request, response) {
   let oldAvatarKey = null;
 
   try {
-    const userId = request.user.id; // ← Dùng biến đã khai báo
+    const userId = request.user.id;
 
-    // === 1. Tìm user ===
     const user = await UserModel.findById(userId);
     if (!user) {
       return response.status(404).json({
@@ -104,7 +100,6 @@ export async function uploadImage(request, response) {
       });
     }
 
-    // === 2. Validate file ===
     if (!request.file) {
       return response.status(400).json({
         status: "ERROR",
@@ -122,14 +117,12 @@ export async function uploadImage(request, response) {
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      // 5MB cho avatar
       return response.status(400).json({
         status: "ERROR",
         message: "Image too large. Max 5MB.",
       });
     }
 
-    // === 3. Lấy key ảnh cũ (nếu có) ===
     if (user.avatar_url) {
       try {
         oldAvatarKey = user.avatar_url.split(
@@ -140,11 +133,9 @@ export async function uploadImage(request, response) {
       }
     }
 
-    // === 4. Tạo key mới ===
     const ext = file.originalname.split(".").pop();
     const fileKey = `avatars/${userId}/${uuidv4()}.${ext}`;
 
-    // === 5. Upload S3 ===
     const uploadParams = {
       Bucket: S3_BUCKET,
       Key: fileKey,
@@ -166,11 +157,9 @@ export async function uploadImage(request, response) {
       });
     }
 
-    // === 6. Cập nhật DB ===
     user.avatar_url = s3Url;
     await user.save();
 
-    // === 7. Xóa ảnh cũ ===
     if (oldAvatarKey) {
       try {
         await s3Client.send(
@@ -185,7 +174,6 @@ export async function uploadImage(request, response) {
       }
     }
 
-    // === 8. Response ===
     return response.status(200).json({
       status: "OK",
       message: "Avatar uploaded successfully",
@@ -197,7 +185,6 @@ export async function uploadImage(request, response) {
       },
     });
   } catch (error) {
-    // === 9. Rollback ===
     if (s3Url) {
       try {
         const key = s3Url.split(`/${S3_BUCKET}.s3.${REGION}.amazonaws.com/`)[1];
@@ -280,6 +267,74 @@ export async function deleteAccount(request, response) {
   } catch (error) {
     console.error("deleteAccount] Error:", error);
     return response.status(500).json({
+      status: "ERROR",
+      message: "Internal server error",
+    });
+  }
+}
+
+export async function searchUser(req, res) {
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res.status(400).json({ message: "Missing search keyword" });
+    }
+
+    const users = await UserModel.find({
+      $or: [
+        { username: { $regex: query, $options: "i" } },
+        { display_name: { $regex: query, $options: "i" } },
+      ],
+      is_deleted: false,
+    }).select("_id username display_name email avatar_url");
+
+    return res.json(users);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Server error" });
+  }
+}
+
+export async function changePassword(req, res) {
+  try {
+    const userId = req.user.id; // ✅ req.user.id đúng chuẩn JWT payload của bạn
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({
+        status: "ERROR",
+        message: "Missing password fields",
+      });
+    }
+
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        status: "ERROR",
+        message: "User not found",
+      });
+    }
+
+    // ✅ Dùng method compare trong model
+    const isMatch = await user.comparePassword(oldPassword);
+    if (!isMatch) {
+      return res.status(400).json({
+        status: "ERROR",
+        message: "Old password incorrect",
+      });
+    }
+
+    // ✅ Chỉ gán password_hash — Mongoose tự hash (pre("save"))
+    user.password_hash = newPassword;
+    await user.save();
+
+    return res.status(200).json({
+      status: "OK",
+      message: "Password updated successfully",
+    });
+  } catch (err) {
+    console.error("changePassword error:", err);
+    return res.status(500).json({
       status: "ERROR",
       message: "Internal server error",
     });

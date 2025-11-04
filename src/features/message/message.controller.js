@@ -9,7 +9,7 @@ export async function sendMessage(req, res) {
   try {
     const senderId = req.user.id;
     const { conversationId } = req.params;
-    const { content, post_id } = req.body; // post_id là optional
+    const { content } = req.body;
 
     // === VALIDATE ===
     if (!conversationId || !content?.trim()) {
@@ -35,28 +35,10 @@ export async function sendMessage(req, res) {
       });
     }
 
-    // === KIỂM TRA POST (nếu có) ===
-    let post = null;
-    if (post_id) {
-      post = await PostModel.findOne({
-        _id: post_id,
-        is_deleted: false,
-        user_id: { $in: conversation.user }, // chỉ chia sẻ post trong nhóm
-      });
-
-      if (!post) {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "Post not found or not accessible",
-        });
-      }
-    }
-
     // === TẠO TIN NHẮN ===
     const message = await MessageModel.create({
       sender: senderId,
       content: content.trim(),
-      post: post?._id || null,
       message_type: "text", // luôn là text
     });
 
@@ -66,18 +48,10 @@ export async function sendMessage(req, res) {
     await conversation.save();
 
     // === POPULATE + TRẢ DỮ LIỆU ===
-    const populatedMessage = await MessageModel.findById(message._id)
-      .populate("sender", "_id display_name avatar_url")
-      .populate({
-        path: "post",
-        match: { is_deleted: false },
-        select: "caption",
-        populate: {
-          path: "media",
-          match: { is_deleted: false },
-          select: "url",
-        },
-      });
+    const populatedMessage = await MessageModel.findById(message._id).populate(
+      "sender",
+      "_id display_name avatar_url"
+    );
 
     const messageResponse = {
       _id: populatedMessage._id,
@@ -85,13 +59,6 @@ export async function sendMessage(req, res) {
       content: populatedMessage.content,
       message_type: "text",
       created_at: populatedMessage.created_at,
-      post: populatedMessage.post
-        ? {
-            _id: populatedMessage.post._id,
-            caption: populatedMessage.post.caption,
-            media_url: populatedMessage.post.media.url || null,
-          }
-        : null,
     };
 
     // === SOCKET.IO ===
@@ -115,7 +82,6 @@ export async function sendMessage(req, res) {
     });
   }
 }
-
 /**
  * 💬 Lấy tất cả tin nhắn trong conversation
  */
@@ -162,7 +128,7 @@ export async function getMessages(req, res) {
         ? {
             _id: msg.post._id,
             caption: msg.post.caption,
-            media_url: msg.post.media?.[0]?.url || null,
+            url: msg.post.media?.url || null,
           }
         : null,
     }));
@@ -174,6 +140,128 @@ export async function getMessages(req, res) {
     });
   } catch (err) {
     console.error("getMessages error:", err);
+    return res.status(500).json({
+      status: "ERROR",
+      message: "Internal server error",
+    });
+  }
+}
+
+/**
+ * 📩 Gửi tin nhắn mới kèm post
+ */
+export async function sendMessageWithPost(req, res) {
+  try {
+    const senderId = req.user.id;
+    const { receiverId } = req.params;
+    const { content, post_id } = req.body;
+
+    if (!receiverId || !content?.trim()) {
+      return res.status(400).json({
+        status: "ERROR",
+        message: "receiverId and content are required",
+      });
+    }
+
+    // === TÌM HOẶC TẠO CONVERSATION 1-1 CHÍNH XÁC ===
+    let participants =
+      senderId === receiverId
+        ? [senderId]
+        : [...new Set([senderId, receiverId])].sort();
+
+    let conversation = await ConversationModel.findOne({
+      is_group: false,
+      is_deleted: false,
+      user: { $size: participants.length, $all: participants },
+    });
+
+    if (!conversation) {
+      // ✅ Chưa có → tạo mới
+      conversation = await ConversationModel.create({
+        user: participants,
+        is_group: false,
+      });
+    }
+
+    // === KIỂM TRA POST (nếu có) ===
+    let post = null;
+    if (post_id) {
+      post = await PostModel.findOne({
+        _id: post_id,
+        is_deleted: false,
+      });
+
+      if (!post) {
+        return res.status(400).json({
+          status: "ERROR",
+          message: "Post not found or not accessible",
+        });
+      }
+    }
+
+    // === TẠO MESSAGE ===
+    const message = await MessageModel.create({
+      sender: senderId,
+      content: content.trim(),
+      post: post?._id || null,
+      message_type: "text",
+    });
+
+    // === CẬP NHẬT CONVERSATION ===
+    conversation.message.push(message._id);
+    conversation.updated_at = new Date();
+    await conversation.save();
+
+    // === POPULATE TRẢ DỮ LIỆU ===
+    const populatedMessage = await MessageModel.findById(message._id)
+      .populate("sender", "_id display_name avatar_url")
+      .populate({
+        path: "post",
+        match: { is_deleted: false },
+        select: "caption",
+        populate: {
+          path: "media",
+          match: { is_deleted: false },
+          select: "url",
+        },
+      });
+
+    const messageResponse = {
+      _id: populatedMessage._id,
+      sender: populatedMessage.sender,
+      content: populatedMessage.content,
+      message_type: "text",
+      created_at: populatedMessage.created_at,
+      post: populatedMessage.post
+        ? {
+            _id: populatedMessage.post._id,
+            caption: populatedMessage.post.caption,
+            media_url: populatedMessage.post.media?.url || null,
+          }
+        : null,
+    };
+
+    // === SOCKET ===
+    if (global._io) {
+      global._io
+        .to(conversation._id.toString())
+        .except(senderId)
+        .emit("new_message", {
+          conversationId: conversation._id.toString(),
+          message: messageResponse,
+        });
+    }
+
+    return res.status(201).json({
+      status: "OK",
+      message: "Message sent successfully",
+      data: {
+        conversationId: conversation._id,
+        message: messageResponse,
+      },
+    });
+  } catch (err) {
+    console.error("sendMessage error:", err);
     return res.status(500).json({
       status: "ERROR",
       message: "Internal server error",

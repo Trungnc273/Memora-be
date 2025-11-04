@@ -8,7 +8,7 @@ const ConversationSchema = new Schema({
     type: [{ type: Schema.Types.ObjectId, ref: "User" }],
     required: true,
     validate: {
-      validator: (v) => Array.isArray(v) && v.length > 1,
+      validator: (v) => Array.isArray(v) && v.length > 0,
       message: "Conversation must have at least two user",
     },
   },

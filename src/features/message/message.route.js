@@ -1,5 +1,9 @@
 import { Router } from "express";
-import { sendMessage, getMessages } from "./message.controller.js";
+import {
+  sendMessage,
+  getMessages,
+  sendMessageWithPost,
+} from "./message.controller.js";
 import authMiddleware from "../../shared/middlewares/auth.middleware.js";
 
 const router = Router();
@@ -8,6 +12,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.post("/:conversationId", sendMessage);
+router.post("/receiver/:receiverId", sendMessageWithPost);
 router.get("/:conversationId", getMessages);
 
 export default router;
