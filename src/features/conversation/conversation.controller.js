@@ -65,7 +65,7 @@ export async function getUserConversations(req, res) {
       .populate({
         path: "message",
         select: "_id content created_at",
-        options: { sort: { created_at: -1 }, limit: 1 }, // chỉ lấy tin nhắn mới nhất
+        options: { sort: { created_at: -1 }, limit: 1 },
       })
       .sort({ created_at: -1 });
 

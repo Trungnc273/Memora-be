@@ -171,7 +171,7 @@ export async function getFollowList(req, res) {
   try {
     const followList = await FollowModel.find({
       follower_id: userId,
-      status: { $in: ["pending", "accepted"] },
+      status: "pending",
     }).populate("followee_id", "username display_name avatar_url");
 
     // Chỉ lấy thông tin user
