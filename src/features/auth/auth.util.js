@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
-export function createToken(jwtSecret, user) {
+export function createAccessToken(jwtSecret, user, opts = {}) {
   return jwt.sign(
     {
       id: user.id,
@@ -13,6 +14,15 @@ export function createToken(jwtSecret, user) {
         : [],
     },
     jwtSecret,
-    { expiresIn: "24h" }
+    { expiresIn: opts.expiresIn || "24h" }
   );
+}
+
+export function generateRefreshTokenValue() {
+  // token dài, khó đoán
+  return crypto.randomBytes(64).toString("hex");
+}
+
+export function refreshTokenExpiryDate({ days = 7 } = {}) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
