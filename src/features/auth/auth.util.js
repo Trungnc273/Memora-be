@@ -18,11 +18,6 @@ export function createAccessToken(jwtSecret, user, opts = {}) {
   );
 }
 
-export function generateRefreshTokenValue() {
-  // token dài, khó đoán
-  return crypto.randomBytes(64).toString("hex");
-}
-
 export function refreshTokenExpiryDate({ days = 7 } = {}) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }

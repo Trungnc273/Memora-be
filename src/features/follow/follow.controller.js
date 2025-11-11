@@ -7,6 +7,7 @@ import ConversationModel from "../../core/models/conversation.model.js";
  * Trả về số (Number)
  */
 async function getFriendCount(userId) {
+  console.log("🌍 Has IO:", !!global._io);
   const friendsRaw = await FollowModel.find({
     $or: [
       { follower_id: userId, status: "accepted" },

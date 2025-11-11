@@ -2,11 +2,7 @@ import environment from "../../core/configs/environment.js";
 import UserModel from "../../core/models/user.model.js";
 import RoleModel from "../../core/models/role.model.js";
 import RefreshTokenModel from "../../core/models/refreshToken.model.js";
-import {
-  createAccessToken,
-  generateRefreshTokenValue,
-  refreshTokenExpiryDate,
-} from "./auth.util.js";
+import { createAccessToken, refreshTokenExpiryDate } from "./auth.util.js";
 
 export async function signUp(request, response) {
   const { email, password, username, display_name } = request.body;
