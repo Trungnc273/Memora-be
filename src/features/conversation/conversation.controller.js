@@ -72,14 +72,26 @@ export async function getUserConversations(req, res) {
     // 🔹 Xử lý dữ liệu trả về
     const formatted = conversations.map((conv) => {
       const otherUsers = conv.user.filter((u) => u._id.toString() !== userId);
+      const lastMsg =
+        conv.message && conv.message.length > 0 ? conv.message[0] : null;
 
       return {
         _id: conv._id,
         is_group: conv.is_group,
         user: otherUsers.length > 0 ? otherUsers[0] : null,
-        last_message:
-          conv.message && conv.message.length > 0 ? conv.message[0] : null,
+        last_message: lastMsg,
       };
+    });
+
+    // 🔥 Sort lại theo thời gian tin nhắn mới nhất (ưu tiên có message)
+    formatted.sort((a, b) => {
+      const aTime = a.last_message?.created_at
+        ? new Date(a.last_message.created_at).getTime()
+        : 0;
+      const bTime = b.last_message?.created_at
+        ? new Date(b.last_message.created_at).getTime()
+        : 0;
+      return bTime - aTime; // mới nhất lên đầu
     });
 
     return res.status(200).json({
